@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes">
 <title>MiGasto</title>
+<!-- Google Identity Services -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -472,44 +474,42 @@ function cycleZoom(){
   document.getElementById('zoomBtn').textContent = '🔍 ' + (z === 1 ? '1×' : z === 1.5 ? '1.5×' : '2×');
 }
 
-// ── OAUTH ────────────────────────────────────────────────
-function iniciarLogin(){
-  var params = new URLSearchParams({
-    client_id:     CLIENT_ID,
-    redirect_uri:  window.location.origin + window.location.pathname,
-    response_type: 'token',
-    scope:         SCOPES,
-    prompt:        'select_account'
+// ── OAUTH (Google Identity Services) ────────────────────
+var tokenClient = null;
+
+function initGIS(){
+  if(typeof google === 'undefined' || !google.accounts) {
+    setTimeout(initGIS, 200);
+    return;
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: function(resp){
+      if(resp.error){ toast('Error al iniciar sesión'); return; }
+      S.accessToken = resp.access_token;
+      var expiry = Date.now() + (parseInt(resp.expires_in) - 60) * 1000;
+      localStorage.setItem('mg_token', resp.access_token);
+      localStorage.setItem('mg_token_expiry', String(expiry));
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('appScreen').style.display   = 'block';
+      initApp();
+    }
   });
-  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+}
+
+function iniciarLogin(){
+  if(!tokenClient){ toast('Cargando... intenta de nuevo'); initGIS(); return; }
+  tokenClient.requestAccessToken({prompt: 'select_account'});
 }
 
 function checkToken(){
-  // Capturar token del hash INMEDIATAMENTE antes de cualquier cosa
-  var hash = window.location.hash || sessionStorage.getItem('mg_hash') || '';
-  if(hash && hash.indexOf('access_token') >= 0){
-    sessionStorage.setItem('mg_hash', hash);
-    var params = new URLSearchParams(hash.replace(/^#/,''));
-    var token = params.get('access_token');
-    var expiresIn = parseInt(params.get('expires_in')) || 3600;
-    if(token){
-      S.accessToken = token;
-      var expiry = Date.now() + (expiresIn - 60) * 1000;
-      localStorage.setItem('mg_token', token);
-      localStorage.setItem('mg_token_expiry', String(expiry));
-      sessionStorage.removeItem('mg_hash');
-      history.replaceState(null, '', window.location.pathname);
-      return true;
-    }
-  }
-  // Buscar en localStorage y verificar que no haya expirado
-  var saved = localStorage.getItem('mg_token');
+  var saved  = localStorage.getItem('mg_token');
   var expiry = parseInt(localStorage.getItem('mg_token_expiry')) || 0;
   if(saved && Date.now() < expiry){
     S.accessToken = saved;
     return true;
   }
-  // Token expirado — limpiar
   if(saved){
     localStorage.removeItem('mg_token');
     localStorage.removeItem('mg_token_expiry');
@@ -521,10 +521,10 @@ function cerrarSesion(){
   localStorage.removeItem('mg_token');
   localStorage.removeItem('mg_token_expiry');
   localStorage.removeItem('mg_sheet_id');
-  sessionStorage.removeItem('mg_hash');
   S.accessToken = null; S.sheetId = null;
-  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display  = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
+  if(tokenClient) google.accounts.oauth2.revoke(S.accessToken||'');
   toast('Sesión cerrada');
 }
 
@@ -725,24 +725,26 @@ function cargarDatos(){
     });
 }
 
+function initApp(){
+  document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
+  var sel = document.getElementById('fMonth');
+  var m = String(now.getMonth()+1).padStart(2,'0');
+  for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===m){ sel.selectedIndex=i; break; } }
+  setType('variable');
+  getUserInfo().then(function(){
+    document.getElementById('usrIc').textContent = S.userName ? S.userName.charAt(0).toUpperCase() : '?';
+    cargarDatos();
+    toast('👋 Hola, ' + (S.userName||'usuario') + '!');
+  });
+}
+
 // ── INIT ─────────────────────────────────────────────────
-(function(){
-  if(checkToken()){
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('appScreen').style.display   = 'block';
-    // Fecha actual en formulario
-    document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
-    var sel = document.getElementById('fMonth');
-    var m = String(now.getMonth()+1).padStart(2,'0');
-    for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===m){ sel.selectedIndex=i; break; } }
-    setType('variable');
-    getUserInfo().then(function(){
-      document.getElementById('usrIc').textContent = S.userName ? S.userName.charAt(0).toUpperCase() : '?';
-      cargarDatos();
-      toast('👋 Hola, ' + S.userName + '!');
-    });
-  }
-})();
+initGIS();
+if(checkToken()){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display   = 'block';
+  initApp();
+}
 
 // ══════════════════════════════════════════════
 //  UI — igual que antes
