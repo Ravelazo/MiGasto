@@ -476,6 +476,7 @@ function cycleZoom(){
 
 // ── OAUTH (Google Identity Services) ────────────────────
 var tokenClient = null;
+var isInitializing = false;
 
 function initGIS(){
   if(typeof google === 'undefined' || !google.accounts) {
@@ -486,13 +487,18 @@ function initGIS(){
     client_id: CLIENT_ID,
     scope: SCOPES,
     callback: function(resp){
-      if(resp.error){ toast('Error al iniciar sesión'); return; }
+      if(resp.error){ toast('Error al iniciar sesión: ' + resp.error); return; }
+      if(!resp.access_token){ toast('No se recibió token'); return; }
+      // Guardar token ANTES de cualquier otra cosa
       S.accessToken = resp.access_token;
-      var expiry = Date.now() + (parseInt(resp.expires_in) - 60) * 1000;
+      var expiry = Date.now() + ((parseInt(resp.expires_in)||3600) - 60) * 1000;
       localStorage.setItem('mg_token', resp.access_token);
       localStorage.setItem('mg_token_expiry', String(expiry));
+      console.log('Token guardado:', resp.access_token.substring(0,20)+'...');
+      // Mostrar app
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('appScreen').style.display   = 'block';
+      isInitializing = true;
       initApp();
     }
   });
@@ -518,13 +524,13 @@ function checkToken(){
 }
 
 function cerrarSesion(){
+  if(isInitializing) return; // no cerrar durante init
   localStorage.removeItem('mg_token');
   localStorage.removeItem('mg_token_expiry');
   localStorage.removeItem('mg_sheet_id');
   S.accessToken = null; S.sheetId = null;
   document.getElementById('appScreen').style.display  = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
-  if(tokenClient) google.accounts.oauth2.revoke(S.accessToken||'');
   toast('Sesión cerrada');
 }
 
@@ -533,7 +539,7 @@ function apiGet(url, noLogout){
   return fetch(url, {headers: {'Authorization': 'Bearer ' + S.accessToken}})
     .then(function(r){
       if(r.status === 401){
-        if(!noLogout) cerrarSesion();
+        if(!noLogout && !isInitializing) cerrarSesion();
         throw new Error('Token expirado');
       }
       return r.json();
@@ -738,6 +744,7 @@ function initApp(){
   for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===m){ sel.selectedIndex=i; break; } }
   setType('variable');
   getUserInfo().then(function(){
+    isInitializing = false;
     document.getElementById('usrIc').textContent = S.userName ? S.userName.charAt(0).toUpperCase() : '?';
     cargarDatos();
     toast('👋 Hola, ' + (S.userName||'usuario') + '!');
