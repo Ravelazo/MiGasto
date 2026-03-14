@@ -443,7 +443,7 @@ input:focus,select:focus{border-color:var(--blue)}
 
 // ── CONFIG ───────────────────────────────────────────────
 var CLIENT_ID = '132351083555-n578n5mamqh1euvfoip3m4k29mh3a8nu.apps.googleusercontent.com';
-var SCOPES = 'https://www.googleapis.com/auth/drive.file';
+var SCOPES = 'openid profile email https://www.googleapis.com/auth/drive.file';
 var SHEET_NAME = 'MiGasto — Registro de Gastos';
 
 // ── ESTADO GLOBAL ────────────────────────────────────────
@@ -529,10 +529,13 @@ function cerrarSesion(){
 }
 
 // ── API HELPERS ──────────────────────────────────────────
-function apiGet(url){
+function apiGet(url, noLogout){
   return fetch(url, {headers: {'Authorization': 'Bearer ' + S.accessToken}})
     .then(function(r){
-      if(r.status === 401){ cerrarSesion(); throw new Error('Token expirado'); }
+      if(r.status === 401){
+        if(!noLogout) cerrarSesion();
+        throw new Error('Token expirado');
+      }
       return r.json();
     });
 }
@@ -635,11 +638,14 @@ function readConfig(){
 }
 
 function getUserInfo(){
-  return apiGet('https://www.googleapis.com/oauth2/v2/userinfo')
+  return apiGet('https://www.googleapis.com/oauth2/v2/userinfo', true)
     .then(function(u){
       S.userEmail = u.email || '';
-      S.userName  = u.given_name || u.name || u.email.split('@')[0] || '?';
-    }).catch(function(){ S.userName = '?'; });
+      S.userName  = u.given_name || u.name || (u.email ? u.email.split('@')[0] : 'usuario');
+    }).catch(function(){
+      S.userName = 'usuario';
+      S.userEmail = '';
+    });
 }
 
 // ── GUARDAR GASTO ────────────────────────────────────────
