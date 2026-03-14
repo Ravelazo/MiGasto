@@ -485,28 +485,43 @@ function iniciarLogin(){
 }
 
 function checkToken(){
-  // Primero buscamos en el hash de la URL (redirect OAuth)
-  var hash = window.location.hash;
+  // Capturar token del hash INMEDIATAMENTE antes de cualquier cosa
+  var hash = window.location.hash || sessionStorage.getItem('mg_hash') || '';
   if(hash && hash.indexOf('access_token') >= 0){
-    var params = new URLSearchParams(hash.substring(1));
+    sessionStorage.setItem('mg_hash', hash);
+    var params = new URLSearchParams(hash.replace(/^#/,''));
     var token = params.get('access_token');
+    var expiresIn = parseInt(params.get('expires_in')) || 3600;
     if(token){
       S.accessToken = token;
+      var expiry = Date.now() + (expiresIn - 60) * 1000;
       localStorage.setItem('mg_token', token);
-      // Limpiar URL
+      localStorage.setItem('mg_token_expiry', String(expiry));
+      sessionStorage.removeItem('mg_hash');
       history.replaceState(null, '', window.location.pathname);
       return true;
     }
   }
-  // Sino buscamos en localStorage
+  // Buscar en localStorage y verificar que no haya expirado
   var saved = localStorage.getItem('mg_token');
-  if(saved){ S.accessToken = saved; return true; }
+  var expiry = parseInt(localStorage.getItem('mg_token_expiry')) || 0;
+  if(saved && Date.now() < expiry){
+    S.accessToken = saved;
+    return true;
+  }
+  // Token expirado — limpiar
+  if(saved){
+    localStorage.removeItem('mg_token');
+    localStorage.removeItem('mg_token_expiry');
+  }
   return false;
 }
 
 function cerrarSesion(){
   localStorage.removeItem('mg_token');
+  localStorage.removeItem('mg_token_expiry');
   localStorage.removeItem('mg_sheet_id');
+  sessionStorage.removeItem('mg_hash');
   S.accessToken = null; S.sheetId = null;
   document.getElementById('appScreen').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
